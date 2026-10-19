@@ -1,0 +1,18 @@
+# Flutter/Dart generated files
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+build/
+coverage/
+
+# Local IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Preview dependencies and logs
+preview/node_modules/
+preview/npm-debug.log*
