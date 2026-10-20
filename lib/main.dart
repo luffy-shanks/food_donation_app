@@ -1,13 +1,66 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
-void main() => runApp(const GoodFoodApp());
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class GoodFoodApp extends StatelessWidget {
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const GoodFoodApp());
+}
+
+class GoodFoodApp extends StatefulWidget {
   const GoodFoodApp({super.key});
+  @override State<GoodFoodApp> createState() => _GoodFoodAppState();
+}
+
+class _GoodFoodAppState extends State<GoodFoodApp> {
+  late final Future<void> _ready;
+
   @override
-  Widget build(BuildContext context) => MaterialApp(title: 'GoodFood Network', debugShowCheckedModeBanner: false, theme: buildAppTheme(), home: const WelcomePage());
+  void initState() {
+    super.initState();
+    _ready = store.load().timeout(
+      const Duration(seconds: 3),
+      onTimeout: store.skipSlowRestore,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'GoodFood Network',
+    debugShowCheckedModeBanner: false,
+    theme: buildAppTheme(),
+    home: FutureBuilder<void>(
+      future: _ready,
+      builder: (context, snapshot) => snapshot.connectionState == ConnectionState.done
+          ? const WelcomePage()
+          : const _StartupScreen(),
+    ),
+  );
+}
+
+class _StartupScreen extends StatelessWidget {
+  const _StartupScreen();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.eco, size: 48, color: green),
+            SizedBox(height: 16),
+            CircularProgressIndicator(),
+            SizedBox(height: 12),
+            Text('Loading GoodFood…', style: TextStyle(color: muted)),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class WelcomePage extends StatefulWidget {
@@ -251,6 +304,33 @@ class Donation {
   final String preparation, storage, allergens;
   final bool donorDelivers;
   int qty;
+
+  Map<String, dynamic> toJson() => {
+    'id': id, 'name': name, 'donor': donor, 'qty': qty, 'unit': unit,
+    'category': category, 'foodType': foodType, 'address': address,
+    'ready': ready, 'deadline': deadline, 'notes': notes,
+    'readyAt': readyAt?.toIso8601String(), 'deadlineAt': deadlineAt?.toIso8601String(),
+    'photoUrl': photoUrl, 'latitude': latitude, 'longitude': longitude,
+    'kgPerUnit': kgPerUnit, 'preparation': preparation, 'storage': storage,
+    'allergens': allergens, 'donorDelivers': donorDelivers,
+  };
+
+  factory Donation.fromJson(Map<String, dynamic> json) => Donation(
+    json['id'] as int, json['name'] as String, json['donor'] as String,
+    json['qty'] as int, json['unit'] as String, json['category'] as String,
+    json['foodType'] as String, json['address'] as String, json['ready'] as String,
+    json['deadline'] as String, json['notes'] as String,
+    readyAt: json['readyAt'] == null ? null : DateTime.parse(json['readyAt'] as String),
+    deadlineAt: json['deadlineAt'] == null ? null : DateTime.parse(json['deadlineAt'] as String),
+    photoUrl: json['photoUrl'] as String? ?? '',
+    latitude: (json['latitude'] as num?)?.toDouble(),
+    longitude: (json['longitude'] as num?)?.toDouble(),
+    kgPerUnit: (json['kgPerUnit'] as num?)?.toDouble() ?? 0,
+    preparation: json['preparation'] as String? ?? '',
+    storage: json['storage'] as String? ?? '',
+    allergens: json['allergens'] as String? ?? '',
+    donorDelivers: json['donorDelivers'] as bool? ?? false,
+  );
 }
 
 class PickupRequest {
@@ -264,20 +344,65 @@ class PickupRequest {
   String? cancelReason, missedReason;
   DateTime? collectedAt, deliveredAt;
   bool dueNoticeSent = false;
+
+  Map<String, dynamic> toJson() => {
+    'id': id, 'donationId': donationId, 'ngo': ngo, 'qty': qty,
+    'pickupAt': pickupAt.toIso8601String(), 'ngoLocation': ngoLocation,
+    'stage': stage.name, 'pickupCode': pickupCode, 'cancelReason': cancelReason,
+    'missedReason': missedReason, 'collectedAt': collectedAt?.toIso8601String(),
+    'deliveredAt': deliveredAt?.toIso8601String(), 'dueNoticeSent': dueNoticeSent,
+  };
+
+  factory PickupRequest.fromJson(Map<String, dynamic> json) {
+    final request = PickupRequest(
+      json['id'] as int, json['donationId'] as int, json['ngo'] as String,
+      json['qty'] as int, DateTime.parse(json['pickupAt'] as String),
+      json['ngoLocation'] as String? ?? '',
+    );
+    request.stage = Stage.values.firstWhere(
+      (value) => value.name == json['stage'], orElse: () => Stage.pending,
+    );
+    request.pickupCode = json['pickupCode'] as String?;
+    request.cancelReason = json['cancelReason'] as String?;
+    request.missedReason = json['missedReason'] as String?;
+    request.collectedAt = json['collectedAt'] == null ? null : DateTime.parse(json['collectedAt'] as String);
+    request.deliveredAt = json['deliveredAt'] == null ? null : DateTime.parse(json['deliveredAt'] as String);
+    request.dueNoticeSent = json['dueNoticeSent'] as bool? ?? false;
+    return request;
+  }
 }
 
 class ActivityEvent {
-  ActivityEvent(this.role, this.ngo, this.title, this.message)
-      : createdAt = DateTime.now();
+  ActivityEvent(this.role, this.ngo, this.title, this.message,
+      {this.donor = '', DateTime? createdAt})
+      : createdAt = createdAt ?? DateTime.now();
   final Role role;
-  final String ngo, title, message;
+  final String ngo, title, message, donor;
   final DateTime createdAt;
   bool read = false;
+
+  Map<String, dynamic> toJson() => {
+    'role': role.name, 'ngo': ngo, 'title': title, 'message': message,
+    'donor': donor, 'createdAt': createdAt.toIso8601String(), 'read': read,
+  };
+
+  factory ActivityEvent.fromJson(Map<String, dynamic> json) {
+    final event = ActivityEvent(
+      Role.values.firstWhere((value) => value.name == json['role'], orElse: () => Role.donor),
+      json['ngo'] as String? ?? '', json['title'] as String? ?? '',
+      json['message'] as String? ?? '', donor: json['donor'] as String? ?? '',
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+    event.read = json['read'] as bool? ?? false;
+    return event;
+  }
 }
 
 class Store extends ChangeNotifier {
   int _donationId = 4, _requestId = 1;
+  bool _restoreAllowed = true;
   String currentNgo = 'Hope Shelter';
+  String currentDonor = 'Green Basket Market';
   double ngoLatitude = 12.9750, ngoLongitude = 77.6050;
   final donations = <Donation>[
     Donation(1, 'Fresh vegetable boxes', 'Green Basket Market', 12, 'boxes', 'Produce', 'Vegetarian', '12 Lake Road, Green Park', _displayTime(_nextAt(14, 30)), _displayTime(_afterReady(_nextAt(14, 30), 17)), 'Keep cool; packed in reusable crates.', readyAt: _nextAt(14, 30), deadlineAt: _afterReady(_nextAt(14, 30), 17), latitude: 12.9780, longitude: 77.6000, kgPerUnit: 3.5, preparation: 'Fresh produce; rinse before serving.', storage: 'Keep cool in reusable crates.', allergens: 'None declared.'),
@@ -287,6 +412,63 @@ class Store extends ChangeNotifier {
   final requests = <PickupRequest>[];
   final activities = <ActivityEvent>[];
   final ngos = <String, bool>{'Hope Shelter': true, 'Sunrise Community Kitchen': true, 'New Dawn Outreach': false};
+  static const demoDonors = ['Green Basket Market', 'Sunrise Community Kitchen', 'Cornerstone Bakery', 'Community donor'];
+  List<Donation> get donorDonations => donations.where((d) => d.donor == currentDonor).toList();
+  List<PickupRequest> get donorRequests => requests.where((r) => find(r.donationId)?.donor == currentDonor).toList();
+
+  Future<void> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!_restoreAllowed) return;
+      final saved = prefs.getString('goodfood_demo_state_v1');
+      if (saved == null) return;
+      final data = jsonDecode(saved) as Map<String, dynamic>;
+      final savedDonations = data['donations'] as List<dynamic>?;
+      final savedRequests = data['requests'] as List<dynamic>?;
+      final savedActivities = data['activities'] as List<dynamic>?;
+      if (savedDonations != null) donations
+        ..clear()
+        ..addAll(savedDonations.map((value) => Donation.fromJson(Map<String, dynamic>.from(value as Map))));
+      if (savedRequests != null) requests
+        ..clear()
+        ..addAll(savedRequests.map((value) => PickupRequest.fromJson(Map<String, dynamic>.from(value as Map))));
+      if (savedActivities != null) activities
+        ..clear()
+        ..addAll(savedActivities.map((value) => ActivityEvent.fromJson(Map<String, dynamic>.from(value as Map))));
+      _donationId = data['donationId'] as int? ?? (donations.isEmpty ? 1 : donations.map((d) => d.id).fold<int>(0, (maxId, id) => id > maxId ? id : maxId) + 1);
+      _requestId = data['requestId'] as int? ?? (requests.isEmpty ? 1 : requests.map((r) => r.id).fold<int>(0, (maxId, id) => id > maxId ? id : maxId) + 1);
+      currentNgo = data['currentNgo'] as String? ?? currentNgo;
+      currentDonor = data['currentDonor'] as String? ?? currentDonor;
+      ngoLatitude = (data['ngoLatitude'] as num?)?.toDouble() ?? ngoLatitude;
+      ngoLongitude = (data['ngoLongitude'] as num?)?.toDouble() ?? ngoLongitude;
+      final savedNgos = data['ngos'];
+      if (savedNgos is Map) ngos
+        ..clear()
+        ..addAll(savedNgos.map((key, value) => MapEntry(key.toString(), value == true)));
+    } catch (_) {
+      // Keep built-in sample data if saved demo data is incomplete or unreadable.
+    }
+  }
+
+  void skipSlowRestore() => _restoreAllowed = false;
+
+  void _save() {
+    unawaited(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('goodfood_demo_state_v1', jsonEncode({
+          'donationId': _donationId, 'requestId': _requestId,
+          'currentNgo': currentNgo, 'currentDonor': currentDonor,
+          'ngoLatitude': ngoLatitude, 'ngoLongitude': ngoLongitude, 'ngos': ngos,
+          'donations': donations.map((d) => d.toJson()).toList(),
+          'requests': requests.map((r) => r.toJson()).toList(),
+          'activities': activities.take(100).map((event) => event.toJson()).toList(),
+        }));
+      } catch (_) {
+        // The app remains usable if device storage is unavailable.
+      }
+    }());
+  }
   static DateTime _nextAt(int hour, [int minute = 0]) {
     final now = DateTime.now();
     var value = DateTime(now.year, now.month, now.day, hour, minute);
@@ -300,22 +482,23 @@ class Store extends ChangeNotifier {
   }
   Donation? find(int id) { for (final d in donations) { if (d.id == id) return d; } return null; }
   bool pendingFor(int id, String ngo) => requests.any((r) => r.donationId == id && r.ngo == ngo && r.stage == Stage.pending);
-  void _notify(Role role, String ngo, String title, String message) => activities.insert(0, ActivityEvent(role, ngo, title, message));
-  void add(Donation d) { donations.insert(0, d); notifyListeners(); }
+  void _notify(Role role, String ngo, String title, String message, {String donor = ''}) => activities.insert(0, ActivityEvent(role, ngo, title, message, donor: donor));
+  void add(Donation d) { donations.insert(0, d); _save(); notifyListeners(); }
   Donation createDonation(String name, int quantity, String unit, String category,
       String foodType, String address, String ready, String deadline,
       String notes, DateTime readyAt, DateTime deadlineAt, String photoUrl,
       double? latitude, double? longitude, double kgPerUnit,
       String preparation, String storage, String allergens, bool donorDelivers) => Donation(_donationId++, name,
-          'Community donor', quantity, unit, category, foodType, address,
+          currentDonor, quantity, unit, category, foodType, address,
           ready, deadline, notes, readyAt: readyAt, deadlineAt: deadlineAt,
           photoUrl: photoUrl, latitude: latitude, longitude: longitude, kgPerUnit: kgPerUnit,
           preparation: preparation, storage: storage, allergens: allergens, donorDelivers: donorDelivers);
   bool request(Donation d, String ngo, int qty, DateTime pickupAt, String ngoLocation) {
-    if (qty < 1 || qty > d.qty || pendingFor(d.id, ngo) || (d.donorDelivers && ngoLocation.trim().isEmpty) || !pickupAt.isAfter(DateTime.now()) || (d.readyAt != null && pickupAt.isBefore(d.readyAt!)) || (d.deadlineAt != null && pickupAt.isAfter(d.deadlineAt!))) return false;
+    if (ngos[ngo] != true || qty < 1 || qty > d.qty || pendingFor(d.id, ngo) || (d.donorDelivers && ngoLocation.trim().isEmpty) || !pickupAt.isAfter(DateTime.now()) || (d.readyAt != null && pickupAt.isBefore(d.readyAt!)) || (d.deadlineAt != null && pickupAt.isAfter(d.deadlineAt!))) return false;
     final request = PickupRequest(_requestId++, d.id, ngo, qty, pickupAt, ngoLocation.trim());
     requests.insert(0, request);
-    _notify(Role.donor, ngo, 'New food request', '$ngo requested $qty ${d.unit} of ${d.name}; ${d.donorDelivers ? 'donor delivery' : 'NGO pickup'} planned for ${_displayTime(pickupAt)}.');
+    _notify(Role.donor, ngo, 'New food request', '$ngo requested $qty ${d.unit} of ${d.name}; ${d.donorDelivers ? 'donor delivery' : 'NGO pickup'} planned for ${_displayTime(pickupAt)}.', donor: d.donor);
+    _save();
     notifyListeners(); return true;
   }
   bool decide(PickupRequest r, bool accept) {
@@ -325,7 +508,8 @@ class Store extends ChangeNotifier {
     if (accept) { d!.qty -= r.qty; r.pickupCode = ((r.id * 7919 + r.donationId * 1049) % 9000 + 1000).toString(); }
     final handoff = d?.donorDelivers == true ? 'delivery' : 'pickup';
     _notify(Role.ngo, r.ngo, accept ? 'Request approved' : 'Request declined', accept ? 'Your $handoff for ${d!.name} is approved for ${_displayTime(r.pickupAt)}.' : 'Your request for ${d?.name ?? 'food'} was declined.');
-    _notify(Role.donor, r.ngo, accept ? '$handoff accepted' : 'Request declined', accept ? 'You accepted ${r.ngo}\'s request for ${d!.name}.' : 'You declined ${r.ngo}\'s request for ${d?.name ?? 'food'}.');
+    _notify(Role.donor, r.ngo, accept ? '$handoff accepted' : 'Request declined', accept ? 'You accepted ${r.ngo}\'s request for ${d!.name}.' : 'You declined ${r.ngo}\'s request for ${d?.name ?? 'food'}.', donor: d?.donor ?? '');
+    _save();
     notifyListeners(); return true;
   }
   bool cancel(PickupRequest r, String reason, {required Role cancelledBy}) {
@@ -338,17 +522,26 @@ class Store extends ChangeNotifier {
     final recipient = cancelledBy == Role.ngo ? Role.donor : Role.ngo;
     final d = find(r.donationId);
     final handoff = d?.donorDelivers == true ? 'delivery' : 'pickup';
-    _notify(recipient, r.ngo, '$handoff cancelled', '${r.ngo} cancelled ${find(r.donationId)?.name ?? 'a handoff'}: $reason');
+    _notify(recipient, r.ngo, '$handoff cancelled', '${r.ngo} cancelled ${d?.name ?? 'a handoff'}: $reason', donor: recipient == Role.donor ? d?.donor ?? '' : '');
+    _save();
     notifyListeners(); return true;
   }
   bool confirmCollection(PickupRequest r, String code) {
     if (r.stage != Stage.approved || r.pickupCode != code.trim()) return false;
-    r.stage = Stage.collected; r.collectedAt = DateTime.now();
     final d = find(r.donationId);
-    _notify(Role.donor, r.ngo, d?.donorDelivers == true ? 'Food received' : 'Food collected', d?.donorDelivers == true ? '${r.ngo} confirmed receipt of ${d?.name ?? 'your donation'}.' : '${r.ngo} confirmed collection of ${d?.name ?? 'your donation'}.');
+    r.collectedAt = DateTime.now();
+    if (d?.donorDelivers == true) {
+      r.stage = Stage.delivered;
+      r.deliveredAt = r.collectedAt;
+    } else {
+      r.stage = Stage.collected;
+    }
+    final deliveryComplete = d?.donorDelivers == true;
+    _notify(Role.donor, r.ngo, deliveryComplete ? 'Delivery completed' : 'Food collected', deliveryComplete ? '${r.ngo} confirmed receipt of ${d?.name ?? 'your donation'}. This handoff is complete.' : '${r.ngo} confirmed collection of ${d?.name ?? 'your donation'}.', donor: d?.donor ?? '');
+    _save();
     notifyListeners(); return true;
   }
-  void advance(PickupRequest r) { if (r.stage == Stage.collected) { r.stage = Stage.delivered; r.deliveredAt = DateTime.now(); _notify(Role.donor, r.ngo, 'Delivery confirmed', '${r.ngo} confirmed delivery of ${find(r.donationId)?.name ?? 'the donation'}.'); notifyListeners(); } }
+  void advance(PickupRequest r) { if (r.stage == Stage.collected) { r.stage = Stage.delivered; r.deliveredAt = DateTime.now(); final d = find(r.donationId); _notify(Role.donor, r.ngo, 'Delivery confirmed', '${r.ngo} confirmed distribution of ${d?.name ?? 'the donation'}.', donor: d?.donor ?? ''); _save(); notifyListeners(); } }
   void checkPickupTimes() {
     final now = DateTime.now();
     var changed = false;
@@ -358,21 +551,24 @@ class Store extends ChangeNotifier {
         r.dueNoticeSent = true;
         final handoff = d?.donorDelivers == true ? 'delivery' : 'pickup';
         _notify(Role.ngo, r.ngo, '$handoff due soon', '${handoff[0].toUpperCase()}${handoff.substring(1)} for ${d?.name ?? 'your donation'} is planned for ${_displayTime(r.pickupAt)}.');
-        _notify(Role.donor, r.ngo, '$handoff due soon', d?.donorDelivers == true ? 'You are expected to deliver ${d?.name ?? 'your donation'} to ${r.ngo} at ${_displayTime(r.pickupAt)}.' : '${r.ngo} is expected to collect ${d?.name ?? 'your donation'} at ${_displayTime(r.pickupAt)}.');
+        _notify(Role.donor, r.ngo, '$handoff due soon', d?.donorDelivers == true ? 'You are expected to deliver ${d?.name ?? 'your donation'} to ${r.ngo} at ${_displayTime(r.pickupAt)}.' : '${r.ngo} is expected to collect ${d?.name ?? 'your donation'} at ${_displayTime(r.pickupAt)}.', donor: d?.donor ?? '');
         changed = true;
       } else if (!r.pickupAt.isAfter(now)) {
         r.stage = Stage.missed;
         r.missedReason = d?.donorDelivers == true ? 'Delivery time passed without receipt confirmation.' : 'Pickup time passed without collection confirmation.';
         if (d != null && (d.deadlineAt == null || d.deadlineAt!.isAfter(now))) d.qty += r.qty;
         _notify(Role.ngo, r.ngo, 'Handoff missed', r.missedReason!);
-        _notify(Role.donor, r.ngo, 'Handoff missed', d?.donorDelivers == true ? '${r.ngo} did not confirm receipt of ${d?.name ?? 'your donation'}.' : '${r.ngo} did not confirm pickup of ${d?.name ?? 'your donation'}.');
+        _notify(Role.donor, r.ngo, 'Handoff missed', d?.donorDelivers == true ? '${r.ngo} did not confirm receipt of ${d?.name ?? 'your donation'}.' : '${r.ngo} did not confirm pickup of ${d?.name ?? 'your donation'}.', donor: d?.donor ?? '');
         changed = true;
       }
     }
-    if (changed) notifyListeners();
+    if (changed) { _save(); notifyListeners(); }
   }
-  void markActivitiesRead(Role role) { var changed = false; for (final a in activities.where((a) => a.role == role && (role != Role.ngo || a.ngo == currentNgo))) { if (!a.read) { a.read = true; changed = true; } } if (changed) notifyListeners(); }
-  List<ActivityEvent> activityFor(Role role) => activities.where((a) => a.role == role && (role != Role.ngo || a.ngo == currentNgo)).toList();
+  bool _belongsToRole(ActivityEvent event, Role role) => event.role == role &&
+      (role != Role.ngo || event.ngo == currentNgo) &&
+      (role != Role.donor || event.donor.isEmpty || event.donor == currentDonor);
+  void markActivitiesRead(Role role) { var changed = false; for (final a in activities.where((a) => _belongsToRole(a, role))) { if (!a.read) { a.read = true; changed = true; } } if (changed) { _save(); notifyListeners(); } }
+  List<ActivityEvent> activityFor(Role role) => activities.where((a) => _belongsToRole(a, role)).toList();
   double? distanceKm(double? latitude, double? longitude) {
     if (latitude == null || longitude == null) return null;
     const radius = 6371.0;
@@ -382,9 +578,10 @@ class Store extends ChangeNotifier {
     final a = math.pow(math.sin(deltaLat / 2), 2) + math.cos(lat1) * math.cos(lat2) * math.pow(math.sin(deltaLon / 2), 2);
     return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
   }
-  void setNgoLocation(double latitude, double longitude) { ngoLatitude = latitude; ngoLongitude = longitude; notifyListeners(); }
-  void verify(String name, bool value) { ngos[name] = value; notifyListeners(); }
-  void selectNgo(String name) { if (ngos.containsKey(name)) { currentNgo = name; notifyListeners(); } }
+  void setNgoLocation(double latitude, double longitude) { ngoLatitude = latitude; ngoLongitude = longitude; _save(); notifyListeners(); }
+  void verify(String name, bool value) { ngos[name] = value; _save(); notifyListeners(); }
+  void selectNgo(String name) { if (ngos.containsKey(name)) { currentNgo = name; _save(); notifyListeners(); } }
+  void selectDonor(String name) { if (demoDonors.contains(name)) { currentDonor = name; _save(); notifyListeners(); } }
   int get deliveredItems => requests.where((r) => r.stage == Stage.delivered).fold(0, (sum, r) => sum + r.qty);
   int get deliveredMeals => requests.where((r) => r.stage == Stage.delivered && (find(r.donationId)?.unit.toLowerCase().contains('meal') ?? false)).fold(0, (sum, r) => sum + r.qty);
   int get completedPickups => requests.where((r) => r.stage == Stage.delivered).length;
@@ -409,6 +606,8 @@ class ImpactPanel extends StatelessWidget {
     return Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: green, borderRadius: BorderRadius.circular(22)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('Confirmed community impact', style: TextStyle(color: Colors.white70)),
       const SizedBox(height: 5), Text('${store.deliveredMeals} meals delivered', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 23)),
+      const SizedBox(height: 5),
+      const Text('SDG 2 · Zero Hunger   |   SDG 12 · Responsible Consumption', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 11)),
       const SizedBox(height: 12),
       Wrap(spacing: 18, runSpacing: 8, children: [
         _metric('${store.completedDonations}', 'donations completed'),
@@ -425,6 +624,8 @@ class ImpactPanel extends StatelessWidget {
           const SizedBox(height: 4), Text(['M','T','W','T','F','S','S'][day.weekday - 1], style: const TextStyle(color: Colors.white70, fontSize: 9)),
         ]));
       }))),
+      const SizedBox(height: 6),
+      const Text('Rescued weight is estimated from the donor-entered weight per item.', style: TextStyle(color: Colors.white70, fontSize: 10)),
     ]));
   }
   Widget _metric(String value, String label) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)), Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10))]);
@@ -451,10 +652,13 @@ class ActivityFeed extends StatelessWidget {
 class DonorHome extends StatelessWidget {
   const DonorHome({super.key, required this.onCreate}); final VoidCallback onCreate;
   @override Widget build(BuildContext context) {
+    final available = store.donorDonations.where(store.isAvailable).take(3).toList();
     return ListView(padding: const EdgeInsets.fromLTRB(20, 18, 20, 100), children: [
       const Text('Good afternoon 👋', style: TextStyle(color: ink, fontWeight: FontWeight.w800, fontSize: 24)), const SizedBox(height: 5), const Text('Every donation helps feed a neighbor.', style: TextStyle(color: muted)), const SizedBox(height: 18),
       ImpactPanel(), const SizedBox(height: 22),
-      const Text('Available listings', style: TextStyle(color: ink, fontWeight: FontWeight.w800, fontSize: 18)), const SizedBox(height: 10), ...store.donations.where(store.isAvailable).take(3).map((d) => DonationCard(item: d, role: Role.donor)),
+      const Text('Available listings', style: TextStyle(color: ink, fontWeight: FontWeight.w800, fontSize: 18)), const SizedBox(height: 10),
+      if (available.isEmpty) const Text('No food is currently available. Post a donation or check My food for accepted handoffs.', style: TextStyle(color: muted, fontSize: 12)),
+      ...available.map((d) => DonationCard(item: d, role: Role.donor)),
       OutlinedButton.icon(onPressed: onCreate, icon: const Icon(Icons.add), label: const Text('Post surplus food')),
     ]);
   }
@@ -462,7 +666,7 @@ class DonorHome extends StatelessWidget {
 
 class DonorListings extends StatelessWidget {
   const DonorListings({super.key});
-  @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(20), children: [const Text('My food listings', style: TextStyle(color: ink, fontWeight: FontWeight.w800, fontSize: 23)), const SizedBox(height: 6), const Text('Manage surplus food and collection requests.', style: TextStyle(color: muted)), const SizedBox(height: 16), ...store.donations.map((d) => DonationCard(item: d, role: Role.donor))]);
+  @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(20), children: [const Text('My food listings', style: TextStyle(color: ink, fontWeight: FontWeight.w800, fontSize: 23)), const SizedBox(height: 6), const Text('Manage your food and view accepted handoff details.', style: TextStyle(color: muted)), const SizedBox(height: 16), if (store.donorDonations.isEmpty) const Text('You have no listings yet. Post surplus food to get started.', style: TextStyle(color: muted)), ...store.donorDonations.map((d) => DonationCard(item: d, role: Role.donor))]);
 }
 
 class ExplorePage extends StatefulWidget {
@@ -487,7 +691,12 @@ class DonationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasPending = store.pendingFor(item.id, store.currentNgo);
+    final hasPending = role == Role.donor
+        ? store.requests.any((r) => r.donationId == item.id && r.stage == Stage.pending)
+        : store.pendingFor(item.id, store.currentNgo);
+    final acceptedHandoffs = role == Role.donor
+        ? store.requests.where((r) => r.donationId == item.id && r.stage == Stage.approved && r.pickupCode != null).toList()
+        : const <PickupRequest>[];
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: role == Role.donor ? () => _showDonationStatus(context) : null,
@@ -556,6 +765,10 @@ class DonationCard extends StatelessWidget {
               const SizedBox(height: 4),
               _detail(Icons.info_outline, 'Allergens / notes: ${item.allergens.isEmpty ? item.notes : item.allergens}'),
             ],
+            if (acceptedHandoffs.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              ...acceptedHandoffs.map((request) => _acceptedHandoff(context, request)),
+            ],
             if (role == Role.donor)
               Padding(
                 padding: const EdgeInsets.only(top: 9),
@@ -586,6 +799,25 @@ class DonationCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _acceptedHandoff(BuildContext context, PickupRequest request) {
+    final handoffDate = MaterialLocalizations.of(context).formatMediumDate(request.pickupAt);
+    final handoffTime = TimeOfDay.fromDateTime(request.pickupAt).format(context);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 7),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFFEAF2E8), borderRadius: BorderRadius.circular(13)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Accepted by ${request.ngo}', style: const TextStyle(color: ink, fontWeight: FontWeight.w700, fontSize: 12)),
+        const SizedBox(height: 4),
+        Row(children: [const Icon(Icons.key_outlined, color: green, size: 17), const SizedBox(width: 6), Text('Handoff code: ${request.pickupCode}', style: const TextStyle(color: green, fontWeight: FontWeight.w800, fontSize: 16))]),
+        const SizedBox(height: 3),
+        Text('${item.donorDelivers ? 'Deliver to NGO' : 'NGO pickup'} · $handoffDate at $handoffTime', style: const TextStyle(color: ink, fontSize: 11)),
+        Text(item.donorDelivers ? 'Destination: ${request.ngoLocation}' : 'Pickup: ${item.address}', style: const TextStyle(color: muted, fontSize: 11)),
+      ]),
     );
   }
 
@@ -651,6 +883,11 @@ class DonationCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text('${item.donorDelivers ? 'Expected delivery' : 'Expected pickup'}: $pickupDate at $pickupTime',
               style: const TextStyle(color: muted, fontSize: 12)),
+          if (request.stage == Stage.approved && request.pickupCode != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('Handoff code: ${request.pickupCode}', style: const TextStyle(color: green, fontWeight: FontWeight.w800)),
+            ),
           if (item.donorDelivers && request.pickupCode != null)
             Text('Donor delivery to NGO: ${request.ngoLocation}', style: const TextStyle(color: muted, fontSize: 12)),
           if (item.donorDelivers && request.stage == Stage.pending && request.pickupCode == null)
@@ -835,7 +1072,7 @@ Widget statusChip(String s) => Container(margin: const EdgeInsets.only(top: 8), 
 
 class DonorRequests extends StatelessWidget {
   const DonorRequests({super.key});
-  @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(20), children: [const Text('Donation requests', style: TextStyle(color: ink, fontWeight: FontWeight.w800, fontSize: 23)), const SizedBox(height: 6), const Text('Review requests and see pickup updates.', style: TextStyle(color: muted)), const SizedBox(height: 16), const ActivityFeed(role: Role.donor), const Text('Requests', style: TextStyle(color: ink, fontWeight: FontWeight.w800, fontSize: 17)), const SizedBox(height: 8), if (store.requests.isEmpty) const Text('New requests will appear here.', style: TextStyle(color: muted)), ...store.requests.map((r) => RequestCard(request: r, donor: true))]);
+  @override Widget build(BuildContext context) { final requests = store.donorRequests; return ListView(padding: const EdgeInsets.all(20), children: [const Text('Donation requests', style: TextStyle(color: ink, fontWeight: FontWeight.w800, fontSize: 23)), const SizedBox(height: 6), const Text('Review requests and see pickup updates.', style: TextStyle(color: muted)), const SizedBox(height: 16), const ActivityFeed(role: Role.donor), const Text('Requests', style: TextStyle(color: ink, fontWeight: FontWeight.w800, fontSize: 17)), const SizedBox(height: 8), if (requests.isEmpty) const Text('New requests for your listings will appear here.', style: TextStyle(color: muted)), ...requests.map((r) => RequestCard(request: r, donor: true))]); }
 }
 class NgoPickups extends StatelessWidget {
   const NgoPickups({super.key});
@@ -889,7 +1126,7 @@ class RequestCard extends StatelessWidget {
           if (donor && request.stage == Stage.approved && request.pickupCode != null)
             Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Text('Handoff code: ${request.pickupCode} · share this code at handoff',
+              child: Text('Handoff code: ${request.pickupCode} · also shown on My food',
                   style: const TextStyle(color: green, fontWeight: FontWeight.w700, fontSize: 12)),
             ),
           if (donation != null && donation.donorDelivers && (!donor || request.pickupCode != null))
@@ -945,7 +1182,7 @@ class RequestCard extends StatelessWidget {
               alignment: Alignment.centerRight,
               child: FilledButton.tonal(
                 onPressed: () => _confirmPickup(context),
-                child: const Text('Enter handoff code'),
+                child: Text(donation?.donorDelivers == true ? 'Confirm delivery with code' : 'Enter pickup code'),
               ),
             ),
           if (!donor && !admin && request.stage == Stage.collected)
@@ -975,7 +1212,8 @@ class RequestCard extends StatelessWidget {
     controller.dispose();
     if (code == null || !context.mounted) return;
     final confirmed = store.confirmCollection(request, code);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(confirmed ? 'Collection confirmed.' : 'That handoff code is incorrect.')));
+    final donorDelivers = store.find(request.donationId)?.donorDelivers == true;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(confirmed ? (donorDelivers ? 'Delivery received and completed.' : 'Pickup confirmed. The NGO can confirm distribution next.') : 'That handoff code is incorrect.')));
   }
 
   Future<void> _cancelRequest(BuildContext context) async {
@@ -1105,7 +1343,7 @@ class ProfilePage extends StatelessWidget {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: store,
     builder: (context, _) {
-      final name = isNgo ? store.currentNgo : 'Community donor';
+      final name = isNgo ? store.currentNgo : store.currentDonor;
       final verified = isNgo && store.ngos[name] == true;
       return ListView(padding: const EdgeInsets.all(20), children: [
         const Text('Profile', style: TextStyle(color: ink, fontWeight: FontWeight.w800, fontSize: 23)),
@@ -1127,6 +1365,19 @@ class ProfilePage extends StatelessWidget {
           Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () => _editNgoLocation(context), icon: const Icon(Icons.place_outlined), label: const Text('Set service coordinates'))),
           const SizedBox(height: 8),
           Text(verified ? 'Verified for this demo.' : 'This organization must be verified before requesting food.', style: const TextStyle(color: muted, fontSize: 12)),
+        ],
+        if (!isNgo) ...[
+          const SizedBox(height: 18),
+          const Text('Demo donor profile', style: TextStyle(color: ink, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          DropdownButtonFormField<String>(
+            value: store.currentDonor,
+            decoration: const InputDecoration(labelText: 'Choose donor'),
+            items: Store.demoDonors.map((donor) => DropdownMenuItem(value: donor, child: Text(donor))).toList(),
+            onChanged: (donor) { if (donor != null) store.selectDonor(donor); },
+          ),
+          const SizedBox(height: 6),
+          const Text('Demo profiles keep sample donations and requests separate on this device.', style: TextStyle(color: muted, fontSize: 12)),
         ],
         const SizedBox(height: 16),
         const ListTile(leading: Icon(Icons.health_and_safety_outlined, color: green), title: Text('Food handling guidance'), subtitle: Text('Keep food sealed and follow safe storage instructions.')),
